@@ -1,9 +1,13 @@
 import json
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from evalscope.api.dataset import Sample
 from evalscope.api.evaluator import TaskState
 from evalscope.api.messages import ContentImage, ContentText
+from evalscope.api.metric import SampleScore
 from evalscope.api.registry import get_benchmark
 from evalscope.config import TaskConfig
 
@@ -93,6 +97,82 @@ def test_customer_record_to_sample_converts_openai_image_messages():
     assert sample.metadata['expected_fields'] == ['object', 'color', 'count']
 
 
+def test_customer_record_to_sample_preserves_multi_image_order() -> None:
+    sample = _adapter().record_to_sample(load_records()[1])
+
+    assert [content.image for content in sample.input[0].content if isinstance(content, ContentImage)] == [
+        'custom_eval/multimodal/images/dog.jpg',
+        'custom_eval/multimodal/images/AMNH.jpg',
+        'custom_eval/multimodal/images/tesla.jpg',
+        'custom_eval/multimodal/images/tokyo.jpg',
+    ]
+
+
+@pytest.mark.parametrize('field', ['id', 'expected'])
+def test_customer_record_rejects_missing_required_fields(field: str) -> None:
+    record = load_first_record()
+    del record[field]
+
+    with pytest.raises(ValueError, match=field):
+        _adapter().record_to_sample(record)
+
+
+@pytest.mark.parametrize('record_id', ['', '  ', 123, None])
+def test_customer_record_requires_non_empty_string_id(record_id: Any) -> None:
+    record = load_first_record()
+    record['id'] = record_id
+
+    with pytest.raises(ValueError, match='id.*non-empty string'):
+        _adapter().record_to_sample(record)
+
+
+@pytest.mark.parametrize('expected', [None, [], 'dog', {}])
+def test_customer_record_requires_non_empty_expected_object(expected: Any) -> None:
+    record = load_first_record()
+    record['expected'] = expected
+
+    with pytest.raises(ValueError, match='expected.*non-empty object'):
+        _adapter().record_to_sample(record)
+
+
+@pytest.mark.parametrize('field', ['', '  ', 1])
+def test_customer_record_rejects_invalid_expected_field_names(field: Any) -> None:
+    record = load_first_record()
+    record['expected'] = {field: 'dog'}
+
+    with pytest.raises(ValueError, match='expected.*non-empty strings'):
+        _adapter().record_to_sample(record)
+
+
+def test_customer_record_rejects_reserved_overall_field() -> None:
+    record = load_first_record()
+    record['expected'] = {'overall': 'dog', 'count': 1}
+
+    with pytest.raises(ValueError, match='overall.*reserved'):
+        _adapter().record_to_sample(record)
+
+
+@pytest.mark.parametrize('value', [[], {}, float('nan'), float('inf'), float('-inf')])
+def test_customer_record_rejects_non_scalar_or_non_finite_targets(value: Any) -> None:
+    record = load_first_record()
+    record['expected'] = {'object': value}
+
+    with pytest.raises(ValueError, match='expected.*object.*JSON scalar'):
+        _adapter().record_to_sample(record)
+
+
+def test_customer_null_and_string_targets_support_scalar_normalization() -> None:
+    adapter = _adapter()
+    record = load_first_record()
+    record['expected'] = {'object': ' Dog ', 'color': None}
+    sample = adapter.record_to_sample(record)
+    response = '{"object":"DOG", "color":null}'
+
+    score = adapter.match_score(response, response, sample.target, _task_state())
+
+    assert score.value == {'object_accuracy': 1.0, 'color_accuracy': 1.0, 'overall_accuracy': 1.0, 'accuracy': 1.0}
+
+
 def test_customer_match_score_reports_field_accuracy_for_wrong_count():
     adapter = _adapter()
 
@@ -147,3 +227,32 @@ def test_customer_match_score_marks_non_object_json_as_parse_error():
     assert score.value['object_accuracy'] == 0.0
     assert score.value['count_accuracy'] == 0.0
     assert score.value['overall_accuracy'] == 0.0
+
+
+@pytest.mark.parametrize('response', ['not json', '[]', '{"object":"dog","extra":NaN}',
+                                      '{"object":"dog","extra":Infinity}',
+                                      '{"object":"dog","extra":-Infinity}'])
+def test_customer_invalid_json_zeroes_all_expected_metrics(response: str) -> None:
+    score = _adapter().match_score(response, response, '{"object":"dog","count":1}', _task_state())
+
+    assert score.metadata['parse_error'] is True
+    assert score.value == {'object_accuracy': 0.0, 'count_accuracy': 0.0, 'overall_accuracy': 0.0, 'accuracy': 0.0}
+
+
+def test_customer_aggregation_counts_parse_errors_without_excluding_zero_scores() -> None:
+    adapter = _adapter()
+    responses = ['{"object":"dog"}', 'not json']
+    sample_scores = [
+        SampleScore(
+            score=adapter.match_score(response, response, '{"object":"dog"}', _task_state()),
+            sample_id=index,
+        )
+        for index, response in enumerate(responses)
+    ]
+
+    metrics = {score.metric_name: score for score in adapter.aggregate_scores(sample_scores)}
+
+    for name in ['accuracy', 'overall_accuracy']:
+        assert metrics[name].score == 0.5
+        assert metrics[name].num == 2
+        assert metrics[name].metadata == {'parse_error_count': 1, 'sample_count': 2}
