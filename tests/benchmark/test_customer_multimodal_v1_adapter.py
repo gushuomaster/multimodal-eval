@@ -1,6 +1,11 @@
 import json
 from pathlib import Path
 
+from evalscope.api.dataset import Sample
+from evalscope.api.evaluator import TaskState
+from evalscope.api.messages import ContentImage, ContentText
+from evalscope.api.registry import get_benchmark
+from evalscope.config import TaskConfig
 
 FIXTURE_PATH = Path(__file__).parents[2] / 'custom_eval' / 'multimodal' / 'customer_v1' / 'example.jsonl'
 
@@ -53,3 +58,61 @@ def test_customer_multi_image_record_contains_scalar_expected_fields():
     assert record['id'] == 'customer-v1-multi-001'
     assert record['expected'] == {'has_dog': True, 'image_count': 4}
     assert all(isinstance(value, (bool, int, float, str)) for value in record['expected'].values())
+
+
+def _adapter():
+    return get_benchmark('customer_multimodal_v1', TaskConfig(model='mock', datasets=['customer_multimodal_v1']))
+
+
+def _task_state() -> TaskState:
+    return TaskState(model='mock', sample=Sample(input='question', target=''))
+
+
+def test_customer_record_to_sample_converts_openai_image_messages():
+    adapter = _adapter()
+    record = load_first_record()
+
+    sample = adapter.record_to_sample(record)
+
+    assert [content.type for content in sample.input[0].content] == ['text', 'image']
+    assert isinstance(sample.input[0].content[0], ContentText)
+    assert isinstance(sample.input[0].content[1], ContentImage)
+    assert sample.target == '{"color": "black-and-white", "count": 1, "object": "dog"}'
+    assert sample.metadata['id'] == 'customer-v1-single-001'
+    assert sample.metadata['expected_fields'] == ['object', 'color', 'count']
+
+
+def test_customer_match_score_reports_field_accuracy_for_wrong_count():
+    adapter = _adapter()
+
+    score = adapter.match_score(
+        '{"object":"dog","color":"black-and-white","count":2}',
+        '{"object":"dog","color":"black-and-white","count":2}',
+        '{"object":"dog","color":"black-and-white","count":1}',
+        _task_state(),
+    )
+
+    assert score.value['object_accuracy'] == 1.0
+    assert score.value['color_accuracy'] == 1.0
+    assert score.value['count_accuracy'] == 0.0
+    assert score.value['overall_accuracy'] == 2 / 3
+
+
+def test_customer_match_score_marks_malformed_json_as_parse_error():
+    adapter = _adapter()
+
+    score = adapter.match_score('not json', 'not json', '{"object":"dog"}', _task_state())
+
+    assert score.value['overall_accuracy'] == 0.0
+    assert score.metadata['parse_error'] is True
+
+
+def test_customer_match_score_scores_missing_expected_fields_as_zero():
+    adapter = _adapter()
+
+    score = adapter.match_score('{"object":"dog"}', '{"object":"dog"}', '{"object":"dog","color":"black","count":1}', _task_state())
+
+    assert score.value['object_accuracy'] == 1.0
+    assert score.value['color_accuracy'] == 0.0
+    assert score.value['count_accuracy'] == 0.0
+    assert score.value['overall_accuracy'] == 1 / 3
