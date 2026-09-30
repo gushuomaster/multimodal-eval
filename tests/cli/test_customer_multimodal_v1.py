@@ -67,6 +67,10 @@ def test_customer_multimodal_v1_native_run_persists_exact_scores(
     assert metrics['accuracy']['num'] == 2
     assert metrics['overall_accuracy']['score'] == pytest.approx(overall)
     assert metrics['overall_accuracy']['num'] == 2
+    assert metrics['field_accuracy']['score'] == pytest.approx(overall)
+    assert metrics['field_accuracy']['num'] == 2
+    assert metrics['overall_command_correct']['score'] == pytest.approx(overall)
+    assert metrics['overall_command_correct']['num'] == 2
     expected_num = {
         'object_accuracy': 1,
         'color_accuracy': 1,

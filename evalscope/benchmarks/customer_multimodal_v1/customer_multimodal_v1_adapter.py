@@ -3,6 +3,9 @@ import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
+
 from evalscope.api.benchmark import BenchmarkMeta, VisionLanguageAdapter
 from evalscope.api.dataset import Sample
 from evalscope.api.evaluator import TaskState
@@ -12,6 +15,8 @@ from evalscope.api.registry import register_benchmark
 from evalscope.constants import Tags
 from evalscope.models.utils.openai import chat_messages_from_openai
 from evalscope.report import Report
+
+from .business_comparator import BusinessComparator
 
 
 def _reject_json_constant(value: str) -> None:
@@ -29,7 +34,7 @@ def _reject_json_constant(value: str) -> None:
         few_shot_num=0,
         eval_split='test',
         train_split=None,
-        evaluation_version='v1.1',
+        evaluation_version='v1.2',
         description="""
 ## Overview
 
@@ -45,15 +50,22 @@ Customer Multimodal v1 evaluates structured visual question answering over custo
 ## Key Features
 
 - Supports local multimodal fixture records with stable expected-field targets
-- Scores every expected scalar field independently and reports an overall accuracy
-- Preserves record identifiers and expected field names for review and debugging
+- Applies benchmark-local strict JSON parsing before optional Draft 2020-12 JSON Schema validation
+- Supports per-field absolute numeric tolerance and optional critical fields for command-level correctness
+- Preserves field-level business diagnostics in the standard review records
 
 ## Evaluation Notes
 
-- The primary metric is the mean `accuracy` across samples; `overall_accuracy` is persisted as a diagnostic aggregate alias
+- The primary metric is the mean `accuracy` across samples; `overall_accuracy` and `field_accuracy` preserve the same
+  unweighted field mean for compatibility and explicit business reporting
+- `overall_command_correct` is 1 only when schema validation passes (when configured) and every critical field is present,
+  type-correct, and value-correct. Without `critical_fields`, all expected fields are critical
+- `schema_valid` is emitted only for cases that provide a schema
 - Responses must be JSON objects; malformed or non-object responses receive zero accuracy
 - Non-standard JSON constants (`NaN`, `Infinity`, and `-Infinity`) are parse errors and receive zero accuracy
-- Aggregate metadata includes `parse_error_count` and `sample_count` for both accuracy metrics. These records are saved
+- String values use strict exact matching without whitespace, case, punctuation, or semantic normalization. Numeric tolerance
+  is absolute-only and accepts values exactly on the configured boundary
+- Aggregate metadata includes `parse_error_count` and `sample_count` for `accuracy` and `overall_accuracy`. These records are saved
   per subset in `customer_multimodal_v1_diagnostics.jsonl` beside the standard report; the standard report schema does
   not retain aggregate metadata
 - Evaluation uses the `test` split and requires no few-shot examples or network access
@@ -66,8 +78,22 @@ when `local_path='custom_eval/multimodal/customer_v1'` and `subset_list=['exampl
 Each JSONL record requires a non-empty string `id`, OpenAI-compatible `messages`, and a non-empty `expected` object.
 Expected field names must be non-empty strings; `overall` is reserved for the aggregate metric.
 Expected values must be JSON scalars (string, finite number, boolean, or null); nested objects and arrays are invalid.
-Invalid dataset records raise an error during conversion instead of being scored. String comparisons ignore surrounding
-whitespace and case; numeric comparisons do not equate booleans with numbers.
+Invalid dataset records raise an error during conversion instead of being scored. Comparisons require identical scalar
+types, so booleans never equal integers and strings must match exactly.
+
+Each record may add a Draft 2020-12 JSON Schema in `schema`, absolute numeric tolerances in `tolerance`, and a non-empty
+subset of expected field names in `critical_fields`:
+
+```json
+{
+  "schema": {"type": "object", "required": ["target_id", "confidence"]},
+  "tolerance": {"confidence": {"absolute": 0.01}},
+  "critical_fields": ["target_id", "confidence"]
+}
+```
+
+Tolerance is valid only for numeric expected values. Field weights, relative tolerance, fuzzy matching, and automatic
+normalization are not implemented in this evaluation version.
 
 This offline smoke run checks local loading and scoring with the mock model. Its default response is not JSON, so zero
 accuracy and parse errors are expected. For model evaluation, use `eval_type='openai_api'` and configure `model`, `api_url`,
@@ -126,10 +152,57 @@ class CustomerMultimodalV1Adapter(VisionLanguageAdapter):
         if isinstance(messages, str):
             messages = json.loads(messages)
         target = json.dumps(expected, ensure_ascii=False, sort_keys=True)
+        metadata = {'id': record_id, 'expected_fields': list(expected.keys())}
+        schema = record.get('schema')
+        if schema is not None:
+            if not isinstance(schema, dict):
+                raise ValueError('schema must be a valid JSON Schema object')
+            try:
+                Draft202012Validator.check_schema(schema)
+            except SchemaError as error:
+                raise ValueError('schema must be a valid JSON Schema object') from error
+            metadata['schema'] = schema
+        tolerance = record.get('tolerance')
+        if tolerance is not None and not isinstance(tolerance, dict):
+            raise ValueError('tolerance must be an object')
+        if tolerance:
+            absolute_tolerances: Dict[str, float] = {}
+            for name, policy in tolerance.items():
+                if name not in expected:
+                    raise ValueError(f'tolerance field {name!r} must reference an expected field')
+                expected_value = expected[name]
+                if isinstance(expected_value, bool) or not isinstance(expected_value, (int, float)):
+                    raise ValueError(f'tolerance field {name!r} must reference a numeric expected field')
+                if not isinstance(policy, dict) or 'absolute' not in policy:
+                    raise ValueError(f'tolerance field {name!r} must define absolute')
+                if set(policy) != {'absolute'}:
+                    raise ValueError(f'tolerance field {name!r} only supports absolute')
+                absolute = policy['absolute']
+                if (
+                    isinstance(absolute, bool)
+                    or not isinstance(absolute, (int, float))
+                    or not math.isfinite(absolute)
+                    or absolute < 0
+                ):
+                    raise ValueError(f'tolerance field {name!r} absolute must be a non-negative finite number')
+                absolute_tolerances[name] = float(absolute)
+            metadata['absolute_tolerances'] = absolute_tolerances
+        critical_fields = record.get('critical_fields')
+        if critical_fields is not None:
+            if not isinstance(critical_fields, list) or not critical_fields:
+                raise ValueError('critical_fields must be a non-empty list')
+            if any(not isinstance(name, str) or not name.strip() for name in critical_fields):
+                raise ValueError('critical_fields entries must be non-empty strings')
+            if len(set(critical_fields)) != len(critical_fields):
+                raise ValueError('critical_fields must not contain duplicate fields')
+            for name in critical_fields:
+                if name not in expected:
+                    raise ValueError(f'critical_fields entry {name!r} must reference an expected field')
+            metadata['critical_fields'] = critical_fields
         return Sample(
             input=chat_messages_from_openai(model='', messages=messages),
             target=target,
-            metadata={'id': record_id, 'expected_fields': list(expected.keys())},
+            metadata=metadata,
         )
 
     @staticmethod
@@ -140,23 +213,6 @@ class CustomerMultimodalV1Adapter(VisionLanguageAdapter):
             return None
         return parsed if isinstance(parsed, dict) else None
 
-    @staticmethod
-    def _normalize_scalar(value: Any) -> Any:
-        if isinstance(value, str):
-            return value.strip().lower()
-        return value
-
-    @classmethod
-    def _scalars_equal(cls, predicted: Any, expected: Any) -> bool:
-        """Compare scalar values without conflating booleans and numbers."""
-        predicted = cls._normalize_scalar(predicted)
-        expected = cls._normalize_scalar(expected)
-        if isinstance(predicted, bool) or isinstance(expected, bool):
-            return type(predicted) is type(expected) and predicted == expected
-        if isinstance(predicted, (int, float)) and isinstance(expected, (int, float)):
-            return predicted == expected
-        return predicted == expected
-
     def match_score(
         self, original_prediction: str, filtered_prediction: str, reference: str, task_state: TaskState
     ) -> Score:
@@ -165,21 +221,50 @@ class CustomerMultimodalV1Adapter(VisionLanguageAdapter):
         predicted = self._parse_object(filtered_prediction)
         score = Score(prediction=original_prediction, extracted_prediction=filtered_prediction)
         field_names = list(expected.keys()) if expected is not None else []
+        schema = task_state.metadata.get('schema')
         if expected is None or predicted is None:
             score.metadata['parse_error'] = True
             score.value.update({f'{name}_accuracy': 0.0 for name in field_names})
+            score.value['field_accuracy'] = 0.0
             score.value['overall_accuracy'] = 0.0
             score.value['accuracy'] = 0.0
+            score.value['overall_command_correct'] = 0.0
+            if schema is not None:
+                score.value['schema_valid'] = 0.0
             score.main_score_name = 'overall_accuracy'
             return score
 
-        accuracies = {
-            f'{name}_accuracy': float(name in predicted and self._scalars_equal(predicted[name], value))
-            for name, value in expected.items()
-        }
+        schema_valid = True
+        if schema is not None:
+            schema_errors = sorted(
+                Draft202012Validator(schema).iter_errors(predicted), key=lambda error: list(error.path)
+            )
+            schema_valid = not schema_errors
+            score.value['schema_valid'] = float(schema_valid)
+            if schema_errors:
+                score.metadata['schema_errors'] = [
+                    {
+                        'message': error.message,
+                        'path': list(error.absolute_path),
+                        'validator': error.validator,
+                    }
+                    for error in schema_errors
+                ]
+
+        comparison = BusinessComparator.compare(
+            predicted,
+            expected,
+            absolute_tolerances=task_state.metadata.get('absolute_tolerances'),
+            critical_fields=task_state.metadata.get('critical_fields'),
+            schema_valid=schema_valid,
+        )
+        accuracies = {f'{name}_accuracy': value for name, value in comparison.field_scores.items()}
         score.value.update(accuracies)
-        score.value['overall_accuracy'] = sum(accuracies.values()) / len(accuracies) if accuracies else 0.0
-        score.value['accuracy'] = score.value['overall_accuracy']
+        score.value['field_accuracy'] = comparison.field_accuracy
+        score.value['overall_accuracy'] = comparison.field_accuracy
+        score.value['accuracy'] = comparison.field_accuracy
+        score.value['overall_command_correct'] = comparison.overall_command_correct
+        score.metadata.update(comparison.diagnostics)
         score.main_score_name = 'overall_accuracy'
         return score
 

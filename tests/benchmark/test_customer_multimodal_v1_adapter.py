@@ -108,6 +108,66 @@ def test_customer_record_to_sample_preserves_multi_image_order() -> None:
     ]
 
 
+def test_customer_record_to_sample_preserves_business_contract() -> None:
+    record = load_first_record()
+    record['expected'] = {'target_id': 'item-1', 'confidence': 0.91, 'description': 'expected'}
+    record['schema'] = {
+        'type': 'object',
+        'properties': {
+            'target_id': {'type': 'string'},
+            'confidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
+            'description': {'type': 'string'},
+        },
+        'required': ['target_id', 'confidence', 'description'],
+        'additionalProperties': False,
+    }
+    record['tolerance'] = {'confidence': {'absolute': 0.01}}
+    record['critical_fields'] = ['target_id', 'confidence']
+
+    sample = _adapter().record_to_sample(record)
+
+    assert sample.metadata['schema'] == record['schema']
+    assert sample.metadata['absolute_tolerances'] == {'confidence': 0.01}
+    assert sample.metadata['critical_fields'] == ['target_id', 'confidence']
+
+
+def test_customer_match_score_applies_schema_tolerance_and_critical_fields() -> None:
+    record = load_first_record()
+    record['expected'] = {'target_id': 'item-1', 'confidence': 0.91, 'description': 'expected'}
+    record['schema'] = {
+        'type': 'object',
+        'properties': {
+            'target_id': {'type': 'string'},
+            'confidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
+            'description': {'type': 'string'},
+        },
+        'required': ['target_id', 'confidence', 'description'],
+        'additionalProperties': False,
+    }
+    record['tolerance'] = {'confidence': {'absolute': 0.01}}
+    record['critical_fields'] = ['target_id', 'confidence']
+    sample = _adapter().record_to_sample(record)
+    task_state = TaskState(model='mock', sample=sample)
+    response = '{"target_id":"item-1","confidence":0.915,"description":"different"}'
+
+    score = _adapter().match_score(response, response, sample.target, task_state)
+
+    assert score.value == {
+        'target_id_accuracy': 1.0,
+        'confidence_accuracy': 1.0,
+        'description_accuracy': 0.0,
+        'field_accuracy': 2 / 3,
+        'overall_accuracy': 2 / 3,
+        'accuracy': 2 / 3,
+        'overall_command_correct': 1.0,
+        'schema_valid': 1.0,
+    }
+    assert score.metadata['value_mismatches']['description'] == {
+        'expected': 'expected',
+        'actual': 'different',
+    }
+
+
 @pytest.mark.parametrize('field', ['id', 'expected'])
 def test_customer_record_rejects_missing_required_fields(field: str) -> None:
     record = load_first_record()
@@ -161,7 +221,68 @@ def test_customer_record_rejects_non_scalar_or_non_finite_targets(value: Any) ->
         _adapter().record_to_sample(record)
 
 
-def test_customer_null_and_string_targets_support_scalar_normalization() -> None:
+@pytest.mark.parametrize(
+    ('tolerance', 'message'),
+    [
+        ([], 'tolerance.*object'),
+        ('confidence', 'tolerance.*object'),
+        ({'missing': {'absolute': 0.1}}, 'tolerance.*missing.*expected field'),
+        ({'confidence': {}}, 'tolerance.*confidence.*absolute'),
+        (
+            {'confidence': {'absolute': 0.1, 'relative': 0.1}},
+            'tolerance.*confidence.*only supports absolute',
+        ),
+        ({'confidence': {'absolute': -0.1}}, 'tolerance.*confidence.*non-negative finite'),
+        ({'confidence': {'absolute': True}}, 'tolerance.*confidence.*non-negative finite'),
+    ],
+)
+def test_customer_record_rejects_invalid_tolerance_contract(tolerance: Any, message: str) -> None:
+    record = load_first_record()
+    record['expected'] = {'confidence': 0.91}
+    record['tolerance'] = tolerance
+
+    with pytest.raises(ValueError, match=message):
+        _adapter().record_to_sample(record)
+
+
+@pytest.mark.parametrize(
+    ('critical_fields', 'message'),
+    [
+        ([], 'critical_fields.*non-empty list'),
+        ('object', 'critical_fields.*non-empty list'),
+        ([{}], 'critical_fields.*non-empty strings'),
+        ([''], 'critical_fields.*non-empty strings'),
+        (['missing'], 'critical_fields.*missing.*expected field'),
+        (['object', 'object'], 'critical_fields.*duplicate'),
+    ],
+)
+def test_customer_record_rejects_invalid_critical_fields_contract(critical_fields: Any, message: str) -> None:
+    record = load_first_record()
+    record['critical_fields'] = critical_fields
+
+    with pytest.raises(ValueError, match=message):
+        _adapter().record_to_sample(record)
+
+
+def test_customer_record_rejects_tolerance_for_non_numeric_expected_field() -> None:
+    record = load_first_record()
+    record['expected'] = {'label': 'dog'}
+    record['tolerance'] = {'label': {'absolute': 0.1}}
+
+    with pytest.raises(ValueError, match='tolerance.*label.*numeric expected field'):
+        _adapter().record_to_sample(record)
+
+
+@pytest.mark.parametrize('schema', ['not-an-object', {'type': 'unsupported'}])
+def test_customer_record_rejects_invalid_json_schema(schema: Any) -> None:
+    record = load_first_record()
+    record['schema'] = schema
+
+    with pytest.raises(ValueError, match='schema.*valid JSON Schema object'):
+        _adapter().record_to_sample(record)
+
+
+def test_customer_strings_use_exact_matching_without_normalization() -> None:
     adapter = _adapter()
     record = load_first_record()
     record['expected'] = {'object': ' Dog ', 'color': None}
@@ -170,7 +291,59 @@ def test_customer_null_and_string_targets_support_scalar_normalization() -> None
 
     score = adapter.match_score(response, response, sample.target, _task_state())
 
-    assert score.value == {'object_accuracy': 1.0, 'color_accuracy': 1.0, 'overall_accuracy': 1.0, 'accuracy': 1.0}
+    assert score.value == {
+        'object_accuracy': 0.0,
+        'color_accuracy': 1.0,
+        'field_accuracy': 0.5,
+        'overall_accuracy': 0.5,
+        'accuracy': 0.5,
+        'overall_command_correct': 0.0,
+    }
+
+
+def test_customer_schema_can_pass_while_business_value_fails() -> None:
+    record = load_first_record()
+    record['expected'] = {'color': 'black-and-white'}
+    record['schema'] = {
+        'type': 'object',
+        'properties': {'color': {'type': 'string'}},
+        'required': ['color'],
+        'additionalProperties': False,
+    }
+    sample = _adapter().record_to_sample(record)
+    task_state = TaskState(model='mock', sample=sample)
+    response = '{"color":"black and white"}'
+
+    score = _adapter().match_score(response, response, sample.target, task_state)
+
+    assert score.value['schema_valid'] == 1.0
+    assert score.value['field_accuracy'] == 0.0
+    assert score.value['overall_command_correct'] == 0.0
+    assert score.metadata['value_mismatches']['color'] == {
+        'expected': 'black-and-white',
+        'actual': 'black and white',
+    }
+
+
+def test_customer_schema_failure_does_not_erase_business_field_accuracy() -> None:
+    record = load_first_record()
+    record['expected'] = {'color': 'black-and-white'}
+    record['schema'] = {
+        'type': 'object',
+        'properties': {'color': {'type': 'string'}},
+        'required': ['color'],
+        'additionalProperties': False,
+    }
+    sample = _adapter().record_to_sample(record)
+    task_state = TaskState(model='mock', sample=sample)
+    response = '{"color":"black-and-white","extra":true}'
+
+    score = _adapter().match_score(response, response, sample.target, task_state)
+
+    assert score.value['schema_valid'] == 0.0
+    assert score.value['field_accuracy'] == 1.0
+    assert score.value['overall_command_correct'] == 0.0
+    assert score.metadata['schema_errors'][0]['validator'] == 'additionalProperties'
 
 
 def test_customer_match_score_reports_field_accuracy_for_wrong_count():
@@ -236,7 +409,33 @@ def test_customer_invalid_json_zeroes_all_expected_metrics(response: str) -> Non
     score = _adapter().match_score(response, response, '{"object":"dog","count":1}', _task_state())
 
     assert score.metadata['parse_error'] is True
-    assert score.value == {'object_accuracy': 0.0, 'count_accuracy': 0.0, 'overall_accuracy': 0.0, 'accuracy': 0.0}
+    assert score.value == {
+        'object_accuracy': 0.0,
+        'count_accuracy': 0.0,
+        'field_accuracy': 0.0,
+        'overall_accuracy': 0.0,
+        'accuracy': 0.0,
+        'overall_command_correct': 0.0,
+    }
+
+
+def test_customer_invalid_json_zeroes_schema_and_business_metrics() -> None:
+    record = load_first_record()
+    record['expected'] = {'object': 'dog'}
+    record['schema'] = {
+        'type': 'object',
+        'properties': {'object': {'type': 'string'}},
+        'required': ['object'],
+    }
+    sample = _adapter().record_to_sample(record)
+    task_state = TaskState(model='mock', sample=sample)
+
+    score = _adapter().match_score('not json', 'not json', sample.target, task_state)
+
+    assert score.metadata['parse_error'] is True
+    assert score.value['schema_valid'] == 0.0
+    assert score.value['field_accuracy'] == 0.0
+    assert score.value['overall_command_correct'] == 0.0
 
 
 def test_customer_aggregation_counts_parse_errors_without_excluding_zero_scores() -> None:

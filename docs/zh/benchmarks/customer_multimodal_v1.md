@@ -15,15 +15,22 @@ Customer Multimodal v1 evaluates structured visual question answering over custo
 ## Key Features
 
 - Supports local multimodal fixture records with stable expected-field targets
-- Scores every expected scalar field independently and reports an overall accuracy
-- Preserves record identifiers and expected field names for review and debugging
+- Applies benchmark-local strict JSON parsing before optional Draft 2020-12 JSON Schema validation
+- Supports per-field absolute numeric tolerance and optional critical fields for command-level correctness
+- Preserves field-level business diagnostics in the standard review records
 
 ## Evaluation Notes
 
-- The primary metric is the mean `accuracy` across samples; `overall_accuracy` is persisted as a diagnostic aggregate alias
+- The primary metric is the mean `accuracy` across samples; `overall_accuracy` and `field_accuracy` preserve the same
+  unweighted field mean for compatibility and explicit business reporting
+- `overall_command_correct` is 1 only when schema validation passes (when configured) and every critical field is present,
+  type-correct, and value-correct. Without `critical_fields`, all expected fields are critical
+- `schema_valid` is emitted only for cases that provide a schema
 - Responses must be JSON objects; malformed or non-object responses receive zero accuracy
 - Non-standard JSON constants (`NaN`, `Infinity`, and `-Infinity`) are parse errors and receive zero accuracy
-- Aggregate metadata includes `parse_error_count` and `sample_count` for both accuracy metrics. These records are saved
+- String values use strict exact matching without whitespace, case, punctuation, or semantic normalization. Numeric tolerance
+  is absolute-only and accepts values exactly on the configured boundary
+- Aggregate metadata includes `parse_error_count` and `sample_count` for `accuracy` and `overall_accuracy`. These records are saved
   per subset in `customer_multimodal_v1_diagnostics.jsonl` beside the standard report; the standard report schema does
   not retain aggregate metadata
 - Evaluation uses the `test` split and requires no few-shot examples or network access
@@ -36,8 +43,22 @@ when `local_path='custom_eval/multimodal/customer_v1'` and `subset_list=['exampl
 Each JSONL record requires a non-empty string `id`, OpenAI-compatible `messages`, and a non-empty `expected` object.
 Expected field names must be non-empty strings; `overall` is reserved for the aggregate metric.
 Expected values must be JSON scalars (string, finite number, boolean, or null); nested objects and arrays are invalid.
-Invalid dataset records raise an error during conversion instead of being scored. String comparisons ignore surrounding
-whitespace and case; numeric comparisons do not equate booleans with numbers.
+Invalid dataset records raise an error during conversion instead of being scored. Comparisons require identical scalar
+types, so booleans never equal integers and strings must match exactly.
+
+Each record may add a Draft 2020-12 JSON Schema in `schema`, absolute numeric tolerances in `tolerance`, and a non-empty
+subset of expected field names in `critical_fields`:
+
+```json
+{
+  "schema": {"type": "object", "required": ["target_id", "confidence"]},
+  "tolerance": {"confidence": {"absolute": 0.01}},
+  "critical_fields": ["target_id", "confidence"]
+}
+```
+
+Tolerance is valid only for numeric expected values. Field weights, relative tolerance, fuzzy matching, and automatic
+normalization are not implemented in this evaluation version.
 
 This offline smoke run checks local loading and scoring with the mock model. Its default response is not JSON, so zero
 accuracy and parse errors are expected. For model evaluation, use `eval_type='openai_api'` and configure `model`, `api_url`,
