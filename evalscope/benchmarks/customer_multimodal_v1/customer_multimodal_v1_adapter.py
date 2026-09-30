@@ -79,6 +79,17 @@ class CustomerMultimodalV1Adapter(VisionLanguageAdapter):
             return value.strip().lower()
         return value
 
+    @classmethod
+    def _scalars_equal(cls, predicted: Any, expected: Any) -> bool:
+        """Compare scalar values without conflating booleans and numbers."""
+        predicted = cls._normalize_scalar(predicted)
+        expected = cls._normalize_scalar(expected)
+        if isinstance(predicted, bool) or isinstance(expected, bool):
+            return type(predicted) is type(expected) and predicted == expected
+        if isinstance(predicted, (int, float)) and isinstance(expected, (int, float)):
+            return predicted == expected
+        return predicted == expected
+
     def match_score(
         self, original_prediction: str, filtered_prediction: str, reference: str, task_state: TaskState
     ) -> Score:
@@ -95,7 +106,7 @@ class CustomerMultimodalV1Adapter(VisionLanguageAdapter):
             return score
 
         accuracies = {
-            f'{name}_accuracy': float(name in predicted and self._normalize_scalar(predicted[name]) == self._normalize_scalar(value))
+            f'{name}_accuracy': float(name in predicted and self._scalars_equal(predicted[name], value))
             for name, value in expected.items()
         }
         score.value.update(accuracies)

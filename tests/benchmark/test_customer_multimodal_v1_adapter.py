@@ -116,3 +116,23 @@ def test_customer_match_score_scores_missing_expected_fields_as_zero():
     assert score.value['color_accuracy'] == 0.0
     assert score.value['count_accuracy'] == 0.0
     assert score.value['overall_accuracy'] == 1 / 3
+
+
+def test_customer_match_score_does_not_match_boolean_to_number():
+    adapter = _adapter()
+
+    score = adapter.match_score('{"count":true}', '{"count":true}', '{"count":1}', _task_state())
+
+    assert score.value['count_accuracy'] == 0.0
+    assert score.value['overall_accuracy'] == 0.0
+
+
+def test_customer_match_score_marks_non_object_json_as_parse_error():
+    adapter = _adapter()
+
+    score = adapter.match_score('[]', '[]', '{"object":"dog","count":1}', _task_state())
+
+    assert score.metadata['parse_error'] is True
+    assert score.value['object_accuracy'] == 0.0
+    assert score.value['count_accuracy'] == 0.0
+    assert score.value['overall_accuracy'] == 0.0
