@@ -22,8 +22,8 @@ from evalscope.models.utils.openai import chat_messages_from_openai
         few_shot_num=0,
         eval_split='test',
         train_split=None,
-        evaluation_version='v1.0',
-        description='''
+        evaluation_version='v1.1',
+        description="""
 ## Overview
 
 Customer Multimodal v1 evaluates structured visual question answering over customer-provided image messages.
@@ -46,7 +46,7 @@ Customer Multimodal v1 evaluates structured visual question answering over custo
 - The primary metric is the mean `accuracy` across samples; `overall_accuracy` is persisted as a diagnostic aggregate alias
 - Responses must be JSON objects; malformed or non-object responses receive zero accuracy
 - Evaluation uses the `test` split and requires no few-shot examples or network access
-''',
+""",
     )
 )
 class CustomerMultimodalV1Adapter(VisionLanguageAdapter):

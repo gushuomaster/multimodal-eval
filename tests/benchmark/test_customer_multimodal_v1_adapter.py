@@ -60,6 +60,17 @@ def test_customer_multi_image_record_contains_scalar_expected_fields():
     assert all(isinstance(value, (bool, int, float, str)) for value in record['expected'].values())
 
 
+def test_customer_prompts_require_json_with_expected_field_names():
+    for record in load_records():
+        prompt = ' '.join(
+            part['text'] for part in record['messages'][0]['content'] if part['type'] == 'text'
+        )
+
+        assert 'JSON' in prompt
+        assert '不要输出 Markdown' in prompt
+        assert all(field_name in prompt for field_name in record['expected'])
+
+
 def _adapter():
     return get_benchmark('customer_multimodal_v1', TaskConfig(model='mock', datasets=['customer_multimodal_v1']))
 
