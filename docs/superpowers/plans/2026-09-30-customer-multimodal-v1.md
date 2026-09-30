@@ -233,7 +233,38 @@ Expected: the generated index maps `customer_multimodal_v1` to the adapter modul
 
 - [ ] **Step 4: Implement the mock response fixture used by the test**
 
-Configure the existing mock model through its public `TaskConfig` surface so each fixture receives a JSON object containing the expected keys. Do not add a new runner or hard-code production results.
+Patch only the existing `MockLLM.__init__` inside the test, following the repository's established test pattern, and inject one complete `ModelOutput` per fixture record:
+
+```python
+from unittest.mock import patch
+
+from evalscope.api.model import ModelOutput
+from evalscope.models.mockllm import MockLLM
+
+
+outputs = [
+    ModelOutput.from_content(
+        model='customer-mock',
+        content='{"object":"dog","color":"black-and-white","count":1}',
+    ),
+    ModelOutput.from_content(
+        model='customer-mock',
+        content='{"has_dog":true,"image_count":4}',
+    ),
+]
+original_init = MockLLM.__init__
+
+
+def patched_init(self, *args, **kwargs):
+    kwargs['custom_outputs'] = outputs
+    original_init(self, *args, **kwargs)
+
+
+with patch.object(MockLLM, '__init__', patched_init):
+    result = run_task(task_config)
+```
+
+The test must assert persisted report values and restore the patch through the context manager. It must not add a production runner or hard-code scores inside the adapter.
 
 - [ ] **Step 5: Run the native smoke test to verify it passes**
 
