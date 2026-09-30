@@ -1,0 +1,43 @@
+{
+  "meta": {
+    "pretty_name": "Customer Multimodal v1",
+    "dataset_id": "customer_multimodal_v1",
+    "paper_url": null,
+    "tags": [
+      "Custom",
+      "MultiModal",
+      "QA"
+    ],
+    "metrics": [
+      "accuracy"
+    ],
+    "few_shot_num": 0,
+    "eval_split": "test",
+    "train_split": "",
+    "subset_list": [
+      "default"
+    ],
+    "description": "\n## Overview\n\nCustomer Multimodal v1 evaluates structured visual question answering over customer-provided image messages.\n\n## Task Description\n\n- **Task Type**: Structured visual question answering\n- **Input**: OpenAI-compatible text and image messages\n- **Output**: A JSON object containing the expected scalar fields\n- **Domain**: Customer image understanding\n\n## Key Features\n\n- Supports local multimodal fixture records with stable expected-field targets\n- Scores every expected scalar field independently and reports an overall accuracy\n- Preserves record identifiers and expected field names for review and debugging\n\n## Evaluation Notes\n\n- The primary metric is the mean `accuracy` across samples; `overall_accuracy` is persisted as a diagnostic aggregate alias\n- Responses must be JSON objects; malformed or non-object responses receive zero accuracy\n- Evaluation uses the `test` split and requires no few-shot examples or network access\n",
+    "prompt_template": "",
+    "system_prompt": "",
+    "few_shot_prompt_template": "",
+    "aggregation": "mean",
+    "extra_params": {},
+    "sandbox_config": {},
+    "category": "vlm",
+    "primary_metric": {
+      "name": "accuracy",
+      "aggregation": "mean",
+      "dimensions": {}
+    }
+  },
+  "statistics": {},
+  "sample_example": {},
+  "readme": {
+    "en": "# Customer Multimodal v1\n\n\n## Overview\n\nCustomer Multimodal v1 evaluates structured visual question answering over customer-provided image messages.\n\n## Task Description\n\n- **Task Type**: Structured visual question answering\n- **Input**: OpenAI-compatible text and image messages\n- **Output**: A JSON object containing the expected scalar fields\n- **Domain**: Customer image understanding\n\n## Key Features\n\n- Supports local multimodal fixture records with stable expected-field targets\n- Scores every expected scalar field independently and reports an overall accuracy\n- Preserves record identifiers and expected field names for review and debugging\n\n## Evaluation Notes\n\n- The primary metric is the mean `accuracy` across samples; `overall_accuracy` is persisted as a diagnostic aggregate alias\n- Responses must be JSON objects; malformed or non-object responses receive zero accuracy\n- Evaluation uses the `test` split and requires no few-shot examples or network access\n\n\n## Properties\n\n| Property | Value |\n|----------|-------|\n| **Benchmark Name** | `customer_multimodal_v1` |\n| **Dataset ID** | `customer_multimodal_v1` |\n| **Paper** | N/A |\n| **Tags** | `Custom`, `MultiModal`, `QA` |\n| **Metrics** | `accuracy` |\n| **Default Shots** | 0-shot |\n| **Evaluation Split** | `test` |\n\n\n## Data Statistics\n\n*Statistics not available.*\n\n## Sample Example\n\n*Sample example not available.*\n\n## Prompt Template\n\n*No prompt template defined.*\n\n## Usage\n\n### Using CLI\n\n```bash\nevalscope eval \\\n    --model YOUR_MODEL \\\n    --api-url OPENAI_API_COMPAT_URL \\\n    --api-key EMPTY_TOKEN \\\n    --datasets customer_multimodal_v1 \\\n    --limit 10  # Remove this line for formal evaluation\n```\n\n### Using Python\n\n```python\nfrom evalscope import run_task\nfrom evalscope.config import TaskConfig\n\ntask_cfg = TaskConfig(\n    model='YOUR_MODEL',\n    api_url='OPENAI_API_COMPAT_URL',\n    api_key='EMPTY_TOKEN',\n    datasets=['customer_multimodal_v1'],\n    limit=10,  # Remove this line for formal evaluation\n)\n\nrun_task(task_cfg=task_cfg)\n```\n\n\n",
+    "zh": "",
+    "content_hash": "0db5f6460adcb3841bf1f6d3761ebb05",
+    "needs_translation": true
+  },
+  "updated_at": "2026-09-30T12:59:21.175963"
+}

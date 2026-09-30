@@ -18,6 +18,7 @@ Below is the list of supported VLM benchmarks. Click on a benchmark name for det
 | `cmmu` | [CMMU](../../benchmarks/cmmu.md) | `Knowledge`, `MCQ`, `MultiModal`, `QA` |
 | `common_voice_15` | [CommonVoice15](../../benchmarks/common_voice_15.md) | `Audio`, `MultiLingual`, `SpeechRecognition` |
 | `count_qa` | [CountQA](../../benchmarks/count_qa.md) | `MultiModal`, `QA`, `Reasoning` |
+| `customer_multimodal_v1` | [Customer Multimodal v1](../../benchmarks/customer_multimodal_v1.md) | `Custom`, `MultiModal`, `QA` |
 | `docvqa` | [DocVQA](../../benchmarks/docvqa.md) | `Knowledge`, `MultiModal`, `QA` |
 | `emb_spatial_bench` | [EmbSpatial-Bench](../../benchmarks/emb_spatial_bench.md) | `MCQ`, `MultiModal`, `Reasoning` |
 | `erqa` | [ERQA](../../benchmarks/erqa.md) | `MCQ`, `MultiModal`, `Reasoning` |
@@ -99,6 +100,7 @@ Below is the list of supported VLM benchmarks. Click on a benchmark name for det
 ../../benchmarks/cmmu.md
 ../../benchmarks/common_voice_15.md
 ../../benchmarks/count_qa.md
+../../benchmarks/customer_multimodal_v1.md
 ../../benchmarks/docvqa.md
 ../../benchmarks/emb_spatial_bench.md
 ../../benchmarks/erqa.md
