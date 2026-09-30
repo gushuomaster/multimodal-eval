@@ -17,8 +17,8 @@ from evalscope.models.utils.openai import chat_messages_from_openai
         pretty_name='Customer Multimodal v1',
         dataset_id='customer_multimodal_v1',
         tags=[Tags.CUSTOM, Tags.MULTI_MODAL, Tags.QA],
-        metric_list=['overall_accuracy'],
-        primary_metric=MetricSelector(name='overall_accuracy', aggregation='mean'),
+        metric_list=['accuracy'],
+        primary_metric=MetricSelector(name='accuracy', aggregation='mean'),
         few_shot_num=0,
         eval_split='test',
         train_split=None,
@@ -51,6 +51,10 @@ Customer Multimodal v1 evaluates structured visual question answering over custo
 )
 class CustomerMultimodalV1Adapter(VisionLanguageAdapter):
     """Adapter for the deterministic customer multimodal fixture benchmark."""
+
+    def load_from_disk(self, **kwargs) -> Any:
+        """Load local JSONL fixture files through EvalScope's local data loader."""
+        return super().load_from_disk(use_local_loader=True)
 
     def record_to_sample(self, record: Dict[str, Any]) -> Sample:
         """Convert an OpenAI message record into an EvalScope sample."""
@@ -102,6 +106,7 @@ class CustomerMultimodalV1Adapter(VisionLanguageAdapter):
             score.metadata['parse_error'] = True
             score.value.update({f'{name}_accuracy': 0.0 for name in field_names})
             score.value['overall_accuracy'] = 0.0
+            score.value['accuracy'] = 0.0
             score.main_score_name = 'overall_accuracy'
             return score
 
@@ -111,5 +116,6 @@ class CustomerMultimodalV1Adapter(VisionLanguageAdapter):
         }
         score.value.update(accuracies)
         score.value['overall_accuracy'] = sum(accuracies.values()) / len(accuracies) if accuracies else 0.0
+        score.value['accuracy'] = score.value['overall_accuracy']
         score.main_score_name = 'overall_accuracy'
         return score
