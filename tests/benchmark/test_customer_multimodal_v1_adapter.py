@@ -83,6 +83,10 @@ def _task_state() -> TaskState:
     return TaskState(model='mock', sample=Sample(input='question', target=''))
 
 
+def test_customer_multimodal_evaluation_version_is_v1_3() -> None:
+    assert _adapter().benchmark_meta.evaluation_version == 'v1.3'
+
+
 def test_customer_record_to_sample_converts_openai_image_messages():
     adapter = _adapter()
     record = load_first_record()

@@ -43,7 +43,7 @@ _UNSUPPORTED_SCORING_FIELDS: Dict[str, str] = {
         few_shot_num=0,
         eval_split='test',
         train_split=None,
-        evaluation_version='v1.2',
+        evaluation_version='v1.3',
         description="""
 ## Overview
 

@@ -62,6 +62,12 @@ def test_customer_multimodal_v1_native_run_persists_exact_scores(
     assert persisted['execution_summary']['succeeded'] == 2
 
     metrics = {metric['identity']['name']: metric for metric in persisted['metrics']}
+    for name in ['overall_accuracy', 'field_accuracy', 'overall_command_correct']:
+        semantics = metrics[name]['semantics']
+        assert semantics['semantic_id'] == 'quality.accuracy.ratio'
+        assert semantics['direction'] == 'higher_is_better'
+        assert semantics['display_multiplier'] == 100
+        assert semantics['display_unit'] == '%'
     assert persisted['primary_metric_identity']['name'] == 'accuracy'
     assert metrics['accuracy']['score'] == pytest.approx(overall)
     assert metrics['accuracy']['num'] == 2
