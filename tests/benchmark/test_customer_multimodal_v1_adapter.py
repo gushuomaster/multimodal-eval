@@ -456,3 +456,33 @@ def test_customer_aggregation_counts_parse_errors_without_excluding_zero_scores(
         assert metrics[name].score == 0.5
         assert metrics[name].num == 2
         assert metrics[name].metadata == {'parse_error_count': 1, 'sample_count': 2}
+
+
+@pytest.mark.parametrize(
+    ('config_name', 'config_value'),
+    [
+        ('field_weights', {'confidence': 2}),
+        ('relative_tolerance', {'confidence': 0.01}),
+        ('fuzzy_matching', True),
+        ('normalization', {'trim': True}),
+    ],
+)
+def test_customer_record_rejects_unsupported_scoring_configuration(
+    config_name: str,
+    config_value: Any,
+) -> None:
+    record = load_first_record()
+    record['expected'] = {'confidence': 0.91}
+    record[config_name] = config_value
+
+    with pytest.raises(ValueError, match=rf'{config_name}.*not supported'):
+        _adapter().record_to_sample(record)
+
+
+def test_customer_record_allows_unrelated_dataset_metadata() -> None:
+    record = load_first_record()
+    record['business_case'] = 'retail-image-check'
+
+    sample = _adapter().record_to_sample(record)
+
+    assert sample.metadata['id'] == record['id']

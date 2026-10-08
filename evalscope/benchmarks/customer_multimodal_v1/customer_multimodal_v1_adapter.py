@@ -24,6 +24,12 @@ def _reject_json_constant(value: str) -> None:
 
 
 _RESERVED_EXPECTED_FIELDS = {'field', 'overall'}
+_UNSUPPORTED_SCORING_FIELDS: Dict[str, str] = {
+    'field_weights': 'field weights',
+    'fuzzy_matching': 'fuzzy matching',
+    'normalization': 'automatic normalization',
+    'relative_tolerance': 'relative tolerance',
+}
 
 
 @register_benchmark(
@@ -139,6 +145,12 @@ class CustomerMultimodalV1Adapter(VisionLanguageAdapter):
         record_id = record.get('id')
         if not isinstance(record_id, str) or not record_id.strip():
             raise ValueError('id must be a non-empty string')
+        for field_name, feature_name in _UNSUPPORTED_SCORING_FIELDS.items():
+            if field_name in record:
+                raise ValueError(
+                    f'{field_name} is not supported in customer_multimodal_v1; '
+                    f'{feature_name} is outside the current evaluation contract'
+                )
         expected = record.get('expected')
         if not isinstance(expected, dict) or not expected:
             raise ValueError('expected must be a non-empty object')
