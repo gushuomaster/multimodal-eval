@@ -93,3 +93,20 @@ def test_no_legacy_entry_duplicates_a_canonical_declaration() -> None:
         f'these read-old entries repeat their METRIC_DEFINITIONS declaration verbatim: {sorted(redundant)}; '
         f'drop them and let the resolver read the canonical table'
     )
+
+
+@pytest.mark.parametrize(
+    'metric_name',
+    ['overall_accuracy', 'field_accuracy', 'overall_command_correct', 'schema_valid'],
+)
+def test_customer_business_metric_is_a_bounded_quality_ratio(metric_name: str) -> None:
+    semantics = METRIC_DEFINITIONS[metric_name].resolve(metric_name)
+
+    assert semantics.semantic_id == 'quality.accuracy.ratio'
+    assert semantics.kind is MetricKind.QUALITY
+    assert semantics.direction is MetricDirection.HIGHER_IS_BETTER
+    assert semantics.value_range is not None
+    assert semantics.value_range.min == 0
+    assert semantics.value_range.max == 1
+    assert semantics.display_multiplier == 100
+    assert semantics.display_unit == '%'
