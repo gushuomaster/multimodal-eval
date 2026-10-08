@@ -128,3 +128,46 @@ def test_run_status_rejects_invalid_contract_fields(overrides: dict) -> None:
     }
     with pytest.raises(ValidationError):
         EvalRunStatus(**(fields | overrides))
+
+
+@pytest.mark.parametrize(
+    'overrides',
+    [
+        {'exit_code': 0, 'error': {'type': 'ValueError', 'message': 'Invalid'}},
+        {},
+        {'error': None},
+    ],
+)
+def test_failed_run_status_requires_nonzero_exit_and_error(overrides: dict) -> None:
+    from pydantic import ValidationError
+
+    from evalscope.cli.eval_status import EvalRunStatus
+
+    fields = {
+        'status': 'failed',
+        'exit_code': 1,
+        'started_at': '2026-10-08T02:00:00Z',
+        'finished_at': '2026-10-08T02:00:01Z',
+        'config_path': 'runtime/task_config.yaml',
+    }
+    with pytest.raises(ValidationError):
+        EvalRunStatus(**(fields | overrides))
+
+
+@pytest.mark.parametrize('exit_code', [1, -1])
+@pytest.mark.parametrize('message', ['Invalid', str(ValueError())])
+def test_failed_run_status_accepts_nonzero_exit_and_error(exit_code: int, message: str) -> None:
+    from evalscope.cli.eval_status import EvalRunStatus, RunError
+
+    error = RunError(type='ValueError', message=message)
+    status = EvalRunStatus(
+        status='failed',
+        exit_code=exit_code,
+        started_at='2026-10-08T02:00:00Z',
+        finished_at='2026-10-08T02:00:01Z',
+        config_path='runtime/task_config.yaml',
+        error=error,
+    )
+
+    assert status.exit_code == exit_code
+    assert status.error == error

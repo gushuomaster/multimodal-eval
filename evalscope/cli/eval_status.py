@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class RunError(BaseModel):
@@ -30,6 +30,16 @@ class EvalRunStatus(BaseModel):
     reviews: List[str] = Field(default_factory=list)
     predictions: List[str] = Field(default_factory=list)
     error: Optional[RunError] = None
+
+    @model_validator(mode='after')
+    def validate_failed_status(self) -> 'EvalRunStatus':
+        """Require a nonzero exit code and an error for failed runs."""
+        if self.status == 'failed':
+            if self.exit_code == 0:
+                raise ValueError('Failed runs require a nonzero exit code')
+            if self.error is None:
+                raise ValueError('Failed runs require an error')
+        return self
 
 
 def discover_artifacts(output_dir: Path) -> Dict[str, List[str]]:
