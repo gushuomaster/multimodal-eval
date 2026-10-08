@@ -208,7 +208,7 @@ def test_customer_record_rejects_invalid_expected_field_names(field: Any) -> Non
         _adapter().record_to_sample(record)
 
 
-@pytest.mark.parametrize('field_name', ['field', 'overall'])
+@pytest.mark.parametrize('field_name', ['field', 'Field', 'FIELD', 'field-', 'overall', 'Overall'])
 def test_customer_record_rejects_fields_reserved_for_aggregate_metrics(field_name: str) -> None:
     record = load_first_record()
     record['expected'] = {field_name: 'dog', 'count': 1}

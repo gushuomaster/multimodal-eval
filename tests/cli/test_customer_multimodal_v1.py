@@ -20,6 +20,24 @@ def test_customer_multimodal_v1_native_run_persists_exact_scores(
 ) -> None:
     """The native runner evaluates both fixture records and persists aggregate evidence."""
     original_init = MockLLM.__init__
+    fixture_path = Path(__file__).parents[2] / 'custom_eval' / 'multimodal' / 'customer_v1' / 'example.jsonl'
+    records = [json.loads(line) for line in fixture_path.read_text(encoding='utf-8').splitlines()]
+    records[0]['schema'] = {
+        'type': 'object',
+        'properties': {
+            'object': {'type': 'string'},
+            'color': {'type': 'string'},
+            'count': {'type': 'integer'},
+        },
+        'required': ['object', 'color', 'count'],
+        'additionalProperties': False,
+    }
+    dataset_path = tmp_path / 'dataset'
+    dataset_path.mkdir()
+    (dataset_path / 'example.jsonl').write_text(
+        ''.join(f'{json.dumps(record, ensure_ascii=False)}\n' for record in records),
+        encoding='utf-8',
+    )
 
     def scripted_init(model_self: MockLLM, *args: Any, **kwargs: Any) -> None:
         kwargs['custom_outputs'] = [
@@ -39,7 +57,7 @@ def test_customer_multimodal_v1_native_run_persists_exact_scores(
                 datasets=['customer_multimodal_v1'],
                 dataset_args={
                     'customer_multimodal_v1': {
-                        'local_path': 'custom_eval/multimodal/customer_v1',
+                        'local_path': str(dataset_path),
                         'subset_list': ['example'],
                     }
                 },
@@ -62,9 +80,10 @@ def test_customer_multimodal_v1_native_run_persists_exact_scores(
     assert persisted['execution_summary']['succeeded'] == 2
 
     metrics = {metric['identity']['name']: metric for metric in persisted['metrics']}
-    for name in ['overall_accuracy', 'field_accuracy', 'overall_command_correct']:
+    for name in ['overall_accuracy', 'field_accuracy', 'overall_command_correct', 'schema_valid']:
         semantics = metrics[name]['semantics']
         assert semantics['semantic_id'] == 'quality.accuracy.ratio'
+        assert semantics['kind'] == 'quality'
         assert semantics['direction'] == 'higher_is_better'
         assert semantics['display_multiplier'] == 100
         assert semantics['display_unit'] == '%'
@@ -77,6 +96,8 @@ def test_customer_multimodal_v1_native_run_persists_exact_scores(
     assert metrics['field_accuracy']['num'] == 2
     assert metrics['overall_command_correct']['score'] == pytest.approx(overall)
     assert metrics['overall_command_correct']['num'] == 2
+    assert metrics['schema_valid']['score'] == 1.0
+    assert metrics['schema_valid']['num'] == 1
     expected_num = {
         'object_accuracy': 1,
         'color_accuracy': 1,

@@ -13,6 +13,7 @@ from evalscope.api.metric import AggScore, SampleScore, Score
 from evalscope.api.metric.semantics import MetricSelector
 from evalscope.api.registry import register_benchmark
 from evalscope.constants import Tags
+from evalscope.metrics.semantics.naming import canonicalize_producer_identity
 from evalscope.models.utils.openai import chat_messages_from_openai
 from evalscope.report import Report
 
@@ -24,6 +25,7 @@ def _reject_json_constant(value: str) -> None:
 
 
 _RESERVED_EXPECTED_FIELDS = {'field', 'overall'}
+_RESERVED_EXPECTED_METRICS = {f'{name}_accuracy' for name in _RESERVED_EXPECTED_FIELDS}
 _UNSUPPORTED_SCORING_FIELDS: Dict[str, str] = {
     'field_weights': 'field weights',
     'fuzzy_matching': 'fuzzy matching',
@@ -157,7 +159,8 @@ class CustomerMultimodalV1Adapter(VisionLanguageAdapter):
         for name, value in expected.items():
             if not isinstance(name, str) or not name.strip():
                 raise ValueError('expected field names must be non-empty strings')
-            if name in _RESERVED_EXPECTED_FIELDS:
+            metric_name = canonicalize_producer_identity(f'{name}_accuracy', 'mean').name
+            if metric_name in _RESERVED_EXPECTED_METRICS:
                 raise ValueError(f'expected field {name!r} is reserved for an aggregate metric')
             if (value is not None and not isinstance(value, (str, int, float, bool))) or (
                 isinstance(value, float) and not math.isfinite(value)
