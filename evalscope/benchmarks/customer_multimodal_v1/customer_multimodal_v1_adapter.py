@@ -23,6 +23,9 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f'Invalid JSON constant: {value}')
 
 
+_RESERVED_EXPECTED_FIELDS = {'field', 'overall'}
+
+
 @register_benchmark(
     BenchmarkMeta(
         name='customer_multimodal_v1',
@@ -142,8 +145,8 @@ class CustomerMultimodalV1Adapter(VisionLanguageAdapter):
         for name, value in expected.items():
             if not isinstance(name, str) or not name.strip():
                 raise ValueError('expected field names must be non-empty strings')
-            if name == 'overall':
-                raise ValueError("expected field 'overall' is reserved for the aggregate metric")
+            if name in _RESERVED_EXPECTED_FIELDS:
+                raise ValueError(f'expected field {name!r} is reserved for an aggregate metric')
             if (value is not None and not isinstance(value, (str, int, float, bool))) or (
                 isinstance(value, float) and not math.isfinite(value)
             ):

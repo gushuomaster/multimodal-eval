@@ -204,11 +204,12 @@ def test_customer_record_rejects_invalid_expected_field_names(field: Any) -> Non
         _adapter().record_to_sample(record)
 
 
-def test_customer_record_rejects_reserved_overall_field() -> None:
+@pytest.mark.parametrize('field_name', ['field', 'overall'])
+def test_customer_record_rejects_fields_reserved_for_aggregate_metrics(field_name: str) -> None:
     record = load_first_record()
-    record['expected'] = {'overall': 'dog', 'count': 1}
+    record['expected'] = {field_name: 'dog', 'count': 1}
 
-    with pytest.raises(ValueError, match='overall.*reserved'):
+    with pytest.raises(ValueError, match=rf'{field_name}.*reserved'):
         _adapter().record_to_sample(record)
 
 
