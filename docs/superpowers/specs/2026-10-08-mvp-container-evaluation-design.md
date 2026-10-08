@@ -67,6 +67,7 @@ run Docker plus the small set of values the backend is expected to change in the
 - Docker image name.
 - Default configuration path.
 - Input dataset directory.
+- Dataset JSONL path relative to the mounted input root.
 - Output directory.
 - Model name and optional report model ID.
 - API URL and API key.
@@ -98,9 +99,10 @@ work_dir: /eval/output
 no_timestamp: true
 ```
 
-The default customer dataset path inside the configuration is `/eval/data`. The dataset directory is mounted read-only;
-the output directory is writable. The container working directory and example dataset layout must make relative media
-references resolve from the mounted dataset tree.
+The mounted input root is `/eval/data`. The launcher converts the caller's relative dataset path into a child such as
+`/eval/data/custom_eval/multimodal/customer_v1` and stores that path in `dataset_args`. The input root is mounted
+read-only; the output directory is writable. The container working directory is `/eval/data`, so media paths relative
+to that mounted tree resolve consistently.
 
 ### 3.2 Container process
 
