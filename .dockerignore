@@ -1,0 +1,40 @@
+# Repository metadata and agent workspaces.
+**/.git
+**/.worktrees
+**/worktrees
+**/.superpowers
+
+# Local Python environments and caches.
+**/.venv
+**/.venv-*
+**/venv
+**/env
+**/ENV
+**/.tox
+**/.nox
+**/.cache
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.import_linter_cache
+**/.hypothesis
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/.coverage*
+**/htmlcov
+
+# Build outputs and local evaluation evidence.
+**/build
+**/builds
+**/_build
+**/dist
+**/node_modules
+**/outputs
+**/output
+artifacts
+diagnostics
+quarantine
+docs/reports
+
+# Keep custom_eval fixtures and media in the build context.
