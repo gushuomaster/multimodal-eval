@@ -1,5 +1,7 @@
 import json
+import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +11,27 @@ import yaml
 from evalscope.cli.eval_status import EvalRunStatus, write_run_status
 from evalscope.config import TaskConfig
 from evalscope.mvp.container_launcher import build_docker_command, build_runtime_config, main
+
+
+def test_script_loads_checkout_launcher_ahead_of_an_older_installed_package(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[2]
+    older_package = tmp_path / 'evalscope'
+    older_package.mkdir()
+    (older_package / '__init__.py').write_text('', encoding='utf-8')
+    environment = dict(os.environ, PYTHONPATH=str(tmp_path))
+
+    completed = subprocess.run(
+        [sys.executable, str(root / 'scripts' / 'mvp' / 'run_container.py'), '--help'],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        encoding='utf-8',
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert '--dataset-local-path' in completed.stdout
+    assert '--output-dir' in completed.stdout
 
 
 def write_template(path: Path, **changes: Any) -> None:
