@@ -89,7 +89,7 @@ def test_runtime_config_is_rebuilt_from_immutable_default(launch_paths: tuple) -
 
 @pytest.mark.parametrize('template_alias', ['exact', 'parent_traversal', 'relative'])
 def test_runtime_config_rejects_template_collision_without_mutating_repeated_runs(
-    launch_paths: tuple, template_alias: str,
+    launch_paths: tuple, template_alias: str, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     template, _, output_dir, _ = launch_paths
     runtime = build_runtime_config(template, output_dir, 'fixtures/customer_v1', {})
@@ -98,6 +98,7 @@ def test_runtime_config_rejects_template_collision_without_mutating_repeated_run
     if template_alias == 'parent_traversal':
         colliding_template = runtime.parent / '..' / 'runtime' / runtime.name
     elif template_alias == 'relative':
+        monkeypatch.chdir(runtime.anchor)
         colliding_template = Path(os.path.relpath(runtime))
 
     for overrides in ({'model': 'first-model'}, {'api_url': 'https://api.test/v1'}):
