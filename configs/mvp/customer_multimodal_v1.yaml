@@ -1,0 +1,17 @@
+model: text_generation
+model_id: null
+eval_type: mock_llm
+api_url: null
+api_key: EMPTY
+datasets:
+  - customer_multimodal_v1
+dataset_args:
+  customer_multimodal_v1:
+    local_path: /eval/data/custom_eval/multimodal/customer_v1
+    subset_list:
+      - example
+limit: 2
+eval_batch_size: 1
+generation_config: {}
+work_dir: /eval/output
+no_timestamp: true
