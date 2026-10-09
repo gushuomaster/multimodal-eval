@@ -87,6 +87,45 @@ def test_runtime_config_is_rebuilt_from_immutable_default(launch_paths: tuple) -
     assert template.read_bytes() == original
 
 
+@pytest.mark.parametrize('template_alias', ['exact', 'parent_traversal', 'relative'])
+def test_runtime_config_rejects_template_collision_without_mutating_repeated_runs(
+    launch_paths: tuple, template_alias: str,
+) -> None:
+    template, _, output_dir, _ = launch_paths
+    runtime = build_runtime_config(template, output_dir, 'fixtures/customer_v1', {})
+    original = runtime.read_bytes()
+    colliding_template = runtime
+    if template_alias == 'parent_traversal':
+        colliding_template = runtime.parent / '..' / 'runtime' / runtime.name
+    elif template_alias == 'relative':
+        colliding_template = Path(os.path.relpath(runtime))
+
+    for overrides in ({'model': 'first-model'}, {'api_url': 'https://api.test/v1'}):
+        with pytest.raises(ValueError, match='config-template.*runtime.*output-dir'):
+            build_runtime_config(colliding_template, output_dir, 'fixtures/customer_v1', overrides)
+        assert runtime.read_bytes() == original
+
+
+def test_main_rejects_template_collision_before_docker(
+    launch_paths: tuple, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+) -> None:
+    template, _, output_dir, args = launch_paths
+    runtime = build_runtime_config(template, output_dir, 'fixtures/customer_v1', {})
+    original = runtime.read_bytes()
+
+    def unexpected_run(*args: Any, **kwargs: Any) -> None:
+        pytest.fail('Docker must not run when its runtime target is the template')
+
+    monkeypatch.setattr('evalscope.mvp.container_launcher.subprocess.run', unexpected_run)
+    with pytest.raises(SystemExit) as error:
+        main(args + ['--config-template', str(runtime), '--model', 'first-model'])
+    assert error.value.code == 2
+    diagnostic = capsys.readouterr().err
+    assert '--config-template' in diagnostic
+    assert '--output-dir' in diagnostic
+    assert runtime.read_bytes() == original
+
+
 def test_raw_keys_and_generation_replacement_survive_validation(launch_paths: tuple) -> None:
     template, _, output_dir, _ = launch_paths
     overrides = {'api_key': 'raw-测试-key', 'generation_config': {'temperature': 0}, 'limit': 0}
@@ -326,6 +365,41 @@ def test_failed_launch_replaces_stale_status_without_claiming_artifacts(
     assert status.reports == status.reviews == status.predictions == []
     assert status.started_at != '2026-10-09T00:00:00Z'
     assert old_report.read_text(encoding='utf-8') == '{}'
+
+
+@pytest.mark.parametrize('failure', [7, 125, FileNotFoundError('docker missing')])
+def test_host_failure_status_write_error_preserves_docker_exit(
+    launch_paths: tuple, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, failure: Any,
+) -> None:
+    _, _, output_dir, args = launch_paths
+    status_file = output_dir / 'run_status.json'
+    write_run_status(status_file, make_status())
+    previous = status_file.read_bytes()
+    original_replace = os.replace
+
+    def failed_status_replace(source: Path, destination: Path) -> None:
+        if Path(destination) == status_file:
+            raise PermissionError('unrelated-sensitive-detail')
+        original_replace(source, destination)
+
+    def fake_run(command: list[str], check: bool) -> subprocess.CompletedProcess:
+        if isinstance(failure, OSError):
+            raise failure
+        return subprocess.CompletedProcess(command, failure)
+
+    monkeypatch.setattr('evalscope.cli.eval_status.os.replace', failed_status_replace)
+    monkeypatch.setattr('evalscope.mvp.container_launcher.subprocess.run', fake_run)
+    expected_exit = failure if isinstance(failure, int) else 1
+    assert main(args) == expected_exit
+    diagnostic = capsys.readouterr().err
+    assert 'run_status.json' in diagnostic
+    assert 'PermissionError' in diagnostic
+    assert f'exit code {expected_exit}' in diagnostic
+    assert 'unrelated-sensitive-detail' not in diagnostic
+    if isinstance(failure, OSError):
+        assert 'Docker launch failed: docker missing' in diagnostic
+    assert status_file.read_bytes() == previous
+    assert not list(output_dir.glob('.run_status.json.*.tmp'))
 
 
 @pytest.mark.parametrize('previous_failed, failed', [(True, False), (False, True), (True, True)])

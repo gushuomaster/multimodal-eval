@@ -54,6 +54,11 @@ def build_runtime_config(
     overrides: Mapping[str, Any],
 ) -> Path:
     """Validate fresh template values and atomically write the raw container configuration."""
+    runtime_path = output_dir / 'runtime' / 'task_config.yaml'
+    if template_path.resolve() == runtime_path.resolve():
+        raise ValueError(
+            '--config-template must differ from the runtime target; choose another template or --output-dir'
+        )
     config = yaml.safe_load(template_path.read_text(encoding='utf-8'))
     if not isinstance(config, dict):
         raise ValueError('default task configuration must be a YAML mapping')
@@ -73,7 +78,6 @@ def build_runtime_config(
     config['no_timestamp'] = True
     # Validation may normalize values and mask secrets on serialization; persist the raw input instead.
     TaskConfig.model_validate(copy.deepcopy(config))
-    runtime_path = output_dir / 'runtime' / 'task_config.yaml'
     _write_yaml_atomically(runtime_path, config)
     return runtime_path
 
@@ -123,17 +127,24 @@ def _has_current_failure(status_path: Path, previous: Optional[os.stat_result]) 
 
 
 def _write_launch_failure(status_path: Path, started_at: str, exit_code: int, error: Exception) -> None:
-    write_run_status(
-        status_path,
-        EvalRunStatus(
-            status='failed',
-            exit_code=exit_code,
-            started_at=started_at,
-            finished_at=_utc_now(),
-            config_path='runtime/task_config.yaml',
-            error={'type': type(error).__name__, 'message': str(error)},
-        ),
-    )
+    try:
+        write_run_status(
+            status_path,
+            EvalRunStatus(
+                status='failed',
+                exit_code=exit_code,
+                started_at=started_at,
+                finished_at=_utc_now(),
+                config_path='runtime/task_config.yaml',
+                error={'type': type(error).__name__, 'message': str(error)},
+            ),
+        )
+    except OSError as status_error:
+        print(
+            f'Could not write host failure status to {status_path} ({type(status_error).__name__}); '
+            f'returning Docker exit code {exit_code}. Check the output directory permissions and available space.',
+            file=sys.stderr,
+        )
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
